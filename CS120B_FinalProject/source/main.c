@@ -28,7 +28,6 @@ void BuildAllChar(){
 	LCD_BuildChar(0, downward);
 	LCD_BuildChar(1, square);
 	LCD_BuildChar(2, curvy);
-	LCD_BuildChar(3, phone);
 }
 
 //////////////////////////////////////////////////////////////////////
@@ -44,20 +43,15 @@ task tasks[2];
 
 const unsigned long taskPeriod = 100;
 const unsigned long matrixPeriod = 100;
-const unsigned long gameStartPeriod = 200;
+const unsigned long gameStartPeriod = 100;
 const unsigned long gamePlayPeriod = 100;
 
-char alpha[] = {0x00, 0x01, 0x02, 0x03};
-unsigned char alphaIndex = 0;
+unsigned char alpha[] = {0, 1, 2};
 unsigned char cursor = 1;
-unsigned char string[4];
-unsigned char tempString[4];
 
 ///////////////////////////////////////////////////////////////////////
 //SM for game start
 unsigned char startFlag = 0;
-unsigned char symbolIndex = 0;
-unsigned char score = 0;
 unsigned char *menuMessage = "To Play - click the left button";
 unsigned char *gameStarted = "Game started";
 
@@ -97,40 +91,44 @@ int TickFct_GameStart(int state) {
 	switch (state){
 		case Game_waitPress:
 			LCD_DisplayString(1, menuMessage);
-			LCD_WriteData(menuMessage);
 			break;
 		case Game_waitRelease:
 			startFlag = 1;
-			LCD_DisplayString(1, gameStarted);
-			LCD_WriteData(gameStarted);
 			break;
 		case Game_start:
 			break;
 		default:
 			break;
 	}
+
+	return state; // doesnt work when using atmels
 }
 
 ///////////////////////////////////////////////////////////////////////
 //SM for game logic
+unsigned char cnt = 0;
+unsigned short score = 0;
+unsigned int symbolIndex = 0;
+unsigned char displayBuffer[32];
+unsigned char tempBuffer[16];
 
-enum GamePlay_state{GamePlay_wait, GamePlay_start, GamePlay_scoreInc, GamePlay_scoreDec};
+enum GamePlay_state{GamePlay_init, GamePlay_start, GamePlay_wait, GamePlay_scoreInc, GamePlay_scoreDec};
 	
 int TickFct_GamePlay(int state) {
 	switch(state) {
-		case GamePlay_wait:
+		case GamePlay_init:
 			if(startFlag == 1) {
 				state = GamePlay_start;
 			}
 			else {
-				state = GamePlay_wait;
+				state = GamePlay_init;
 			}
 			break;
 		case GamePlay_start:
-			if(!button1 && !button2 && !button3 && !button4) {
-				state = GamePlay_start;
-			}
-			else if(symbolIndex == 0 && button1 && !button2 && !button3 && !button4) {
+			state = GamePlay_wait;
+			break;
+		case GamePlay_wait:
+			if(symbolIndex == 0 && button1 && !button2 && !button3 && !button4) {
 				state = GamePlay_scoreInc;
 			}
 			else if(symbolIndex == 1 && !button1 && button2 && !button3 && !button4) {
@@ -139,7 +137,7 @@ int TickFct_GamePlay(int state) {
 			else if(symbolIndex == 2 && !button1 && !button2 && button3 && !button4) {
 				state = GamePlay_scoreInc;
 			}
-			else {
+			else if(cnt == 10) {
 				state = GamePlay_scoreDec;
 			}
 			break;
@@ -150,23 +148,37 @@ int TickFct_GamePlay(int state) {
 			state = GamePlay_start;
 			break;
 		default:
-			state = GamePlay_wait;
+			state = GamePlay_init;
 			break;
 	}
 	
 	switch(state) {
-		case GamePlay_wait:
+		case GamePlay_init:
 			break;
 		case GamePlay_start:
+			cnt = 0;
 			symbolIndex = rand() % 3;
-			LCD_DisplayString(1, alpha[symbolIndex]);
+			
+			// operations to show the score
+			strcpy(displayBuffer,"                SCORE: ");
+			sprintf(tempBuffer, "%hu", score);
+			strcat(displayBuffer, tempBuffer);
+			
+			LCD_DisplayString(1, displayBuffer);
+			LCD_Cursor(1);
+			LCD_WriteData(alpha[symbolIndex]);
+			break;
+		case GamePlay_wait:
+			cnt += 1;
 			break;
 		case GamePlay_scoreInc:
 			score += 100;
 			symbolIndex = rand() % 3;
 			break;
 		case GamePlay_scoreDec:
-			score -= 50;
+			if(score - 50 < 0) {
+				score -= 50;
+			}
 			symbolIndex = rand() % 3;
 			break;
 		default:
@@ -175,6 +187,9 @@ int TickFct_GamePlay(int state) {
 	
 	return state;
 }
+	
+	//eeprom_write_word((uint16_t*)69, score);
+	//eeprom_read_word((uint16_t*)69);
 ///////////////////////////////////////////////////////////////////////
 //SM for matrix LED
 //PORTD D0 - D5 and PORTA A6 and A7 - for rows - 1 turns off and 0 turns on
@@ -291,7 +306,7 @@ int Tick_MENU(int state){
 		memset(string,0,16);
 		alphaIndex = 0;
 		cursor = 1;
-		break;
+		break;https://github.com/emaiiii/CS120B_FinalProject.git
 		case MENU_EEPROM_WRITE_PRESS:
 		break;
 		case MENU_EEPROM_WRITE_RELEASE:
@@ -314,24 +329,27 @@ int main(void) {
 	DDRC = 0xFF; PORTC = 0x00;
 	DDRD = 0xFF; PORTD = 0x00;
 	
+	BuildAllChar();
+
 	static task task1;
 	static task task2;
-	task *tasklist[] = {&task1, &task2};		
+	static task task3;
+	task *tasklist[] = {&task1, &task2, &task3};		
 
 	task1.state = Game_start;
 	task1.period = gameStartPeriod;
 	task1.elapsedTime = 0;
 	task1.TickFct = &TickFct_GameStart;
-	
-	/*task2.state = Matrix_start;
-	task2.period = matrixPeriod;
-	task2.elapsedTime = 0;
-	task2.TickFct = &TickFct_Matrix;*/
-	
+		
 	task2.state = GamePlay_wait;
 	task2.period = gamePlayPeriod;
 	task2.elapsedTime = 0;
 	task2.TickFct = &TickFct_GamePlay;
+
+	task3.state = Matrix_start;
+	task3.period = matrixPeriod;
+	task3.elapsedTime = 0;
+	task3.TickFct = &TickFct_Matrix;
 
 	TimerOn();
 	TimerSet(100);
@@ -340,7 +358,7 @@ int main(void) {
 	unsigned char i;
 
 	while (1) {		
-		for(i = 0; i < 2; i++){
+		for(i = 0; i < 3; i++){
 			if ( tasklist[i]->elapsedTime == tasklist[i]->period ) {
 				tasklist[i]->state = tasklist[i]->TickFct(tasklist[i]->state);
 				tasklist[i]->elapsedTime = 0;
