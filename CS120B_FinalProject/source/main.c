@@ -4,8 +4,9 @@
 #include <string.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <math.h>
 #include "io.h"
-//#include "io.c"
+#include "io.c"
 #include "timer.h"
 #ifdef _SIMULATE_
 #include "simAVRHeader.h"
@@ -19,14 +20,13 @@
 ///////////////////////////////////////////////////////////////////////
 // special character arrays
 unsigned char downward[] = {0x04,0x04,0x04,0x04,0x15,0x0e,0x04,0x00};
-unsigned char square[] = {0x00,0x1f,0x11,0x11,0x11,0x1f,0x00,0x00};
+unsigned char sq[] = {0x00,0x1f,0x11,0x11,0x11,0x1f,0x00,0x00};
 unsigned char curvy[] = {0x01,0x02,0x04,0x08,0x10,0x11,0x1f,0x00};
-unsigned char phone[] = {0x1f,0x1f,0x12,0x04,0x09,0x10,0x1f,0x00};
 	
 // special character function
 void BuildAllChar(){
 	LCD_BuildChar(0, downward);
-	LCD_BuildChar(1, square);
+	LCD_BuildChar(1, sq);
 	LCD_BuildChar(2, curvy);
 }
 
@@ -52,10 +52,12 @@ unsigned char cursor = 1;
 ///////////////////////////////////////////////////////////////////////
 //SM for game start
 unsigned char startFlag = 0;
+unsigned char stopFlag = 0;
+
 unsigned char *menuMessage = "To Play - click the left button";
 unsigned char *gameStarted = "Game started";
 
-enum GameStart_State {Game_waitPress, Game_waitRelease, Game_start};
+enum GameStart_State {Game_waitPress, Game_waitRelease, Game_start, Game_checkScore};
 
 int TickFct_GameStart(int state) {
 	switch(state){
@@ -108,13 +110,19 @@ int TickFct_GameStart(int state) {
 //SM for game logic
 unsigned char cnt = 0;
 unsigned short score = 0;
-unsigned int symbolIndex = 0;
+unsigned short highScore = 0;
+unsigned char symbolIndex = 0;
+
 unsigned char displayBuffer[32];
 unsigned char tempBuffer[16];
 
-enum GamePlay_state{GamePlay_init, GamePlay_start, GamePlay_wait, GamePlay_scoreInc, GamePlay_scoreDec};
+unsigned char *scoreString = "Score: ";
+unsigned char *newHighScoreString = "New High Score: ";
+
+enum GamePlay_state{GamePlay_init, GamePlay_start, GamePlay_wait, GamePlay_scoreInc, GamePlay_scoreDec, GamePlay_checkScore};
 	
 int TickFct_GamePlay(int state) {
+	
 	switch(state) {
 		case GamePlay_init:
 			if(startFlag == 1) {
@@ -125,7 +133,13 @@ int TickFct_GamePlay(int state) {
 			}
 			break;
 		case GamePlay_start:
-			state = GamePlay_wait;
+			if(stopFlag != 1) {
+				state = GamePlay_wait;
+			}
+			else {
+				cnt = 0;
+				state = GamePlay_checkScore;
+			}
 			break;
 		case GamePlay_wait:
 			if(symbolIndex == 0 && button1 && !button2 && !button3 && !button4) {
@@ -137,7 +151,7 @@ int TickFct_GamePlay(int state) {
 			else if(symbolIndex == 2 && !button1 && !button2 && button3 && !button4) {
 				state = GamePlay_scoreInc;
 			}
-			else if(cnt == 10) {
+			else if(cnt == 5) {
 				state = GamePlay_scoreDec;
 			}
 			break;
@@ -146,6 +160,14 @@ int TickFct_GamePlay(int state) {
 			break;
 		case GamePlay_scoreDec:
 			state = GamePlay_start;
+			break;
+		case GamePlay_checkScore:
+			if(cnt == 50) {
+				state = GamePlay_init;
+			}
+			else {
+				state = GamePlay_checkScore;
+			}
 			break;
 		default:
 			state = GamePlay_init;
@@ -157,7 +179,7 @@ int TickFct_GamePlay(int state) {
 			break;
 		case GamePlay_start:
 			cnt = 0;
-			symbolIndex = rand() % 3;
+			symbolIndex = floor(rand() % 3);
 			
 			// operations to show the score
 			strcpy(displayBuffer,"                SCORE: ");
@@ -181,6 +203,29 @@ int TickFct_GamePlay(int state) {
 			}
 			symbolIndex = rand() % 3;
 			break;
+		case GamePlay_checkScore:
+			startFlag = 0;
+			stopFlag = 0;
+			
+			highScore = eeprom_read_word((uint16_t*)69);
+			
+			if(score > highScore) {
+				eeprom_write_word((uint16_t*)69, score);
+				
+				strcpy(displayBuffer,"NEW HIGH SCORE: ");
+				sprintf(tempBuffer, "%hu", score);
+				strcat(displayBuffer, tempBuffer);
+				
+				LCD_DisplayString(1, displayBuffer);
+			}
+			else {
+				strcpy(displayBuffer,"SCORE: ");
+				sprintf(tempBuffer, "%hu", score);
+				strcat(displayBuffer, tempBuffer);
+				
+				LCD_DisplayString(1, displayBuffer);
+			}
+			break;
 		default:
 			break;
 	}
@@ -199,7 +244,6 @@ unsigned long matrixColSequence[8] = {0b00000001, 0b00000011, 0b00000111, 0b0000
 
 unsigned char row = 0;
 unsigned char column = 0;
-unsigned char stopFlag = 0;
 
 enum Matrix_States {Matrix_start};
 
@@ -239,89 +283,6 @@ int TickFct_Matrix(int state) {
 	
 	return state;
 }
-
-//////////////////////////////////////////////////////////////////////////
-// ex stuff
-/*enum MENU_States {MENU_WAIT,MENU_INC,MENU_DEC,MENU_WRITE,MENU_CLEAR,MENU_EEPROM_WRITE_PRESS,MENU_EEPROM_WRITE_RELEASE,MENU_EEPROM_READ,SMILEY};
-
-int Tick_MENU(int state){
-	switch(state){
-		case MENU_WAIT:
-		if(button1 && !button2 && !button3 && !button4) state = MENU_WRITE;
-		else if(!button1 && button2 && !button3 && !button4) state = MENU_DEC;
-		else if(!button1 && !button2 && button3 && !button4) state = MENU_INC;
-		else if(!button1 && button2 && button3 && !button4) state = MENU_CLEAR;
-		else if(button1 && button2 && !button3 && !button4){state = MENU_EEPROM_READ; strcpy(tempString,string);}
-		else if(!button1 && !button2 && !button3 && button4) state = MENU_EEPROM_WRITE_PRESS;
-		else if(button1 && !button2 && !button3 && button4){state = SMILEY; strcpy(tempString,string);}
-		else state = MENU_WAIT;
-		break;
-		case MENU_INC:
-		state = MENU_WAIT;
-		break;
-		case MENU_DEC:
-		state = MENU_WAIT;
-		break;
-		case MENU_WRITE:
-		state = MENU_WAIT;
-		break;
-		case MENU_CLEAR:
-		state = MENU_WAIT;
-		break;
-		case MENU_EEPROM_WRITE_PRESS:
-		state = (button4)?(MENU_EEPROM_WRITE_PRESS):(MENU_EEPROM_WRITE_RELEASE);
-		break;
-		case MENU_EEPROM_WRITE_RELEASE:
-		state = MENU_WAIT;
-		break;
-		case MENU_EEPROM_READ:
-		state = (button1 && button2 && !button3)?(MENU_EEPROM_READ):(MENU_WAIT);
-		if(state == MENU_WAIT){memset(string,0,16); strcpy(string,tempString);}
-		break;
-		case SMILEY:
-		state = (button1 && button4)?(SMILEY):(MENU_WAIT);
-		if(state == MENU_WAIT){memset(string,0,16); strcpy(string,tempString);}
-		break;
-		default:
-		state = MENU_WAIT;
-		break;
-	}
-
-	switch(state){
-		case MENU_WAIT:
-		break;
-		case MENU_INC:
-		if(alphaIndex < 51) alphaIndex++;
-		string[cursor-1] = alpha[alphaIndex];
-		break;
-		case MENU_DEC:
-		if(alphaIndex > 0) alphaIndex--;
-		string[cursor-1] = alpha[alphaIndex];
-		break;
-		case MENU_WRITE:
-		string[cursor - 1] = alpha[alphaIndex];
-		if(cursor < 16) cursor++;
-		break;
-		case MENU_CLEAR:
-		memset(string,0,16);
-		alphaIndex = 0;
-		cursor = 1;
-		break;https://github.com/emaiiii/CS120B_FinalProject.git
-		case MENU_EEPROM_WRITE_PRESS:
-		break;
-		case MENU_EEPROM_WRITE_RELEASE:
-		eeprom_write_block((void*)&string,(const void*)12,16);
-		break;
-		case MENU_EEPROM_READ:
-		eeprom_read_block((void*)&string,(const void*)12,16);
-		break;
-		case SMILEY:
-		LCD_WriteData(0);
-		break;
-	}
-
-	return state;
-}*/
 
 int main(void) {
 	DDRA = 0xF0; PORTA = 0x0F;
@@ -373,33 +334,3 @@ int main(void) {
 }
 
 	
-	/*unsigned char i = 0;
-	
-	tasks[i].state = Matrix_start;
-	tasks[i].period = matrixPeriod;
-	tasks[i].elapsedTime = 0;
-	tasks[i].TickFct = &TickFct_Matrix;
-	i++;
-	
-	tasks[i].state = MENU_WAIT;
-	tasks[i].period = gamePeriod;
-	tasks[i].elapsedTime = 0;
-	tasks[i].TickFct = &Tick_MENU;
-	i++;
-	
-	TimerOn();
-	TimerSet(taskPeriod);
-	LCD_init();
-	
-	BuildAllChar();
-	string[0] = alpha[0];*/
-	
-	//BuildAllChar();
-	//string[0] = alpha[0];
-
-	// in while loop
-	/*LCD_DisplayString(1,string);
-	if(!button1 && !button2){
-		LCD_Cursor(cursor);
-		LCD_WriteData(alpha[alphaIndex]);
-	}*/
